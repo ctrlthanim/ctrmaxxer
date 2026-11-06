@@ -34,6 +34,17 @@ python -m ctrmaxxer status          # leaderboard
 
 **Kill switch:** create a file named `STOP` in this folder. The next cycle does nothing.
 
+## Discord updates (optional)
+
+In Discord: channel settings → **Integrations → Webhooks → New Webhook → Copy Webhook URL**, and put it in `.env` as `DISCORD_WEBHOOK_URL`. Then:
+
+```bash
+python -m ctrmaxxer discord-test    # sends a test message
+python -m ctrmaxxer watch           # posts when an ad goes into review, starts showing, gets rejected or paused
+```
+
+Live cycles post on their own: each launch (with the ad image), paused losers, rejections, the spend cap, failures, and a leaderboard summary at the end. `watch` checks every `schedule.watch_minutes` (15) and only posts changes; keep it running in its own terminal. Without a webhook URL nothing is posted.
+
 ## Getting CTR data (read this)
 
 The Ads API docs say campaign metrics come from the Open Cloud Analytics API, but Roblox doesn't publish the ad metric names. Two options:

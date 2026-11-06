@@ -5,3 +5,4 @@ metrics.csv
 STOP
 __pycache__/
 .venv/
+watch_state.json

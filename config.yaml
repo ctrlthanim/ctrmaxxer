@@ -38,6 +38,7 @@ guardrails:
 
 schedule:
   hours_between_cycles: 12
+  watch_minutes: 15                     # `watch`: how often to check ad review/serving status for Discord
 
 metrics:
   source: csv                           # csv (export from Ads Manager) | analytics (Open Cloud API)

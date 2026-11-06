@@ -1,12 +1,14 @@
 """One optimization cycle: measure -> prune losers -> study winners -> generate -> launch."""
+import json
 import os
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
 import yaml
 from dotenv import load_dotenv
 
-from . import metrics
+from . import discord, metrics
 from .gemini import Gemini
 from .roblox import Roblox, RobloxError
 from .stats import ctr, pick_losers, prob_best
@@ -69,6 +71,8 @@ def refresh(store, rb, cfg):
         if s.get("deliveryStatus") == "REJECTED":
             store.update(r["id"], status="rejected", note=f"Rejected by Roblox review: {s.get('deliveryStatusReasons')}")
             log(f"creative #{r['id']} REJECTED by review")
+            discord.post(f"Ad #{r['id']} rejected by Roblox review", ", ".join(s.get("deliveryStatusReasons") or []),
+                         "bad", image=r["path"])
         elif s.get("status") in ("PAUSED", "CANCELLED"):
             store.update(r["id"], status="paused", note=f"{s['status']} outside the agent")
     stats = metrics.fetch(rb, cfg, cfg["game"]["universe_id"])
@@ -104,6 +108,9 @@ def run_cycle(cfg, dry_run):
             if rb:
                 rb.set_campaign_status(r["campaign_id"], "PAUSED")
             store.update(r["id"], status="paused", note="paused: total spend cap reached")
+        if rb:
+            discord.post("Spend cap reached: all ads paused",
+                         f"${spent:.2f} spent of the ${g['max_total_spend_usd']} lifetime cap.", "warn")
         return
 
     # Prune creatives that have clearly lost.
@@ -116,6 +123,9 @@ def run_cycle(cfg, dry_run):
         log(f"pausing loser #{r['id']}: ctr {ctr(r) * 100:.3f}% on {r['impressions']} imps, P(best)={pb[r['id']]:.3f}")
         if rb:
             rb.set_campaign_status(r["campaign_id"], "PAUSED")
+            discord.post(f"Paused losing ad #{r['id']}", r["hypothesis"] or "", "warn", fields=[
+                ("CTR", f"{ctr(r) * 100:.3f}%"), ("Impressions", r["impressions"]),
+                ("Chance it's the best", f"{pb[r['id']] * 100:.1f}%")])
         store.update(r["id"], status="paused", note=f"pruned: P(best)={pb[r['id']]:.3f}")
         live = [x for x in live if x["id"] != r["id"]]
 
@@ -126,6 +136,8 @@ def run_cycle(cfg, dry_run):
     n_new = max(0, min(slots, g["max_new_per_cycle"]))
     if n_new == 0:
         log(f"{len(live)} live, no free slots - waiting for data")
+        if rb:
+            post_summary(store, "No free slots: waiting for more data.")
         return
 
     # Study everything tested so far and plan the next batch.
@@ -148,6 +160,8 @@ def run_cycle(cfg, dry_run):
         except Exception as e:
             store.update(cid, path=str(path), status="failed", note=f"generation failed: {e}")
             log(f"#{cid} generation failed: {e}")
+            if rb:
+                discord.post(f"Ad #{cid}: image generation failed", str(e)[:500], "bad")
             continue
         store.update(cid, path=str(path))
         log(f"#{cid} generated ({prop.get('mode')}, gen {gen}): {prop.get('hypothesis')}")
@@ -163,10 +177,83 @@ def run_cycle(cfg, dry_run):
                 targeting=cfg["campaign"].get("targeting"))
             store.update(cid, asset_id=asset_id, campaign_id=str(camp["id"]), status="live", launched_at=now())
             log(f"#{cid} launched: asset {asset_id}, campaign {camp['id']} (${budget}/day)")
+            discord.post(f"Launched ad #{cid}", prop.get("hypothesis") or "", "good", image=path, fields=[
+                ("Budget", f"${budget}/day for {cfg['campaign']['duration_days']} days"),
+                ("Type", f"{prop.get('mode')} (gen {gen})"), ("Campaign", str(camp["id"]))])
         except RobloxError as e:
             store.update(cid, status="failed", note=str(e)[:500])
             log(f"#{cid} launch failed: {e}")
+            discord.post(f"Ad #{cid}: launch failed", str(e)[:500], "bad")
     log("cycle done")
+    if rb:
+        post_summary(store, plan.get("insights", ""))
+
+
+def post_summary(store, note=""):
+    """The leaderboard of everything that has run, as one Discord message."""
+    rows = store.by_status("live", "paused", "rejected")
+    if not rows:
+        return
+    pb = prob_best([r for r in rows if r["status"] != "rejected"])
+    lines = []
+    for r in sorted(rows, key=lambda r: -pb.get(r["id"], -1)):
+        lines.append(f"`#{r['id']:<3}` {r['status']:<8} {r['impressions']:>7,} imps  {r['clicks']:>5,} clicks  "
+                     f"**{ctr(r) * 100:.2f}%**  best? {pb.get(r['id'], 0) * 100:.0f}%")
+    text = "\n".join(lines)
+    if note:
+        text += f"\n\n_{note[:600]}_"
+    discord.post("Cycle summary", text, "info", fields=[("Total spend", f"${store.total_spend():.2f}")])
+
+
+WATCH_STATE = ROOT / "watch_state.json"
+# deliveryStatus -> (headline, colour, image attached?)
+DELIVERY = {
+    "IN_REVIEW": ("in review", "info", False),
+    "SERVING": ("now showing to players", "good", True),
+    "NOT_SERVING": ("not showing", "warn", False),
+    "REJECTED": ("rejected by Roblox review", "bad", True),
+}
+REASONS = {"SCHEDULED": "waiting for its start time"}
+
+
+def watch_once(rb, store, state):
+    """Post every live/paused ad whose Roblox status changed since the last check."""
+    rows = [r for r in store.by_status("live", "paused") if r["campaign_id"]]
+    if not rows:
+        return
+    statuses = rb.campaign_statuses([r["campaign_id"] for r in rows])
+    for r in rows:
+        s = statuses.get(r["campaign_id"])
+        if not s:
+            continue
+        reasons = s.get("deliveryStatusReasons") or []
+        key = f"{s.get('status')}/{s.get('deliveryStatus')}/{','.join(reasons)}"
+        if state.get(r["campaign_id"]) == key:
+            continue
+        state[r["campaign_id"]] = key
+        delivery = s.get("deliveryStatus", "")
+        headline, color, with_image = DELIVERY.get(delivery, (delivery.lower().replace("_", " "), "info", False))
+        if s.get("status") == "PAUSED":
+            headline, color = "paused", "warn"
+        why = ", ".join(REASONS.get(x, x.lower().replace("_", " ")) for x in reasons)
+        log(f"#{r['id']} {headline}{f' ({why})' if why else ''}")
+        discord.post(f"Ad #{r['id']}: {headline}", why, color, image=r["path"] if with_image else None)
+        if delivery == "REJECTED" and r["status"] != "rejected":
+            store.update(r["id"], status="rejected", note=f"Rejected by Roblox review: {reasons}")
+    WATCH_STATE.write_text(json.dumps(state, indent=1))
+
+
+def watch(cfg, minutes):
+    rb = make_roblox(cfg)
+    store = Store(ROOT / "ctrmaxxer.db")
+    state = json.loads(WATCH_STATE.read_text()) if WATCH_STATE.exists() else {}
+    log(f"watching ad status every {minutes} min (Discord: {'on' if discord.enabled() else 'off, no DISCORD_WEBHOOK_URL'})")
+    while True:
+        try:
+            watch_once(rb, store, state)
+        except Exception as e:  # keep watching; the next check retries
+            log(f"watch check failed: {e!r}")
+        time.sleep(minutes * 60)
 
 
 def print_status():

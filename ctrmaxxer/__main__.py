@@ -1,10 +1,11 @@
-"""CLI:  python -m ctrmaxxer {check|probe|run|loop|status}"""
+"""CLI:  python -m ctrmaxxer {check|probe|run|loop|status|watch|discord-test}"""
 import argparse
 import json
 import time
 from datetime import datetime, timedelta, timezone
 
-from .agent import load_config, log, make_roblox, print_status, run_cycle
+from . import discord
+from .agent import load_config, log, make_roblox, print_status, run_cycle, watch
 from .roblox import RobloxError
 
 
@@ -42,6 +43,9 @@ def main():
     lp.add_argument("--live", action="store_true")
     lp.add_argument("--hours", type=float, default=None, help="hours between cycles (default from config)")
     sub.add_parser("status", help="leaderboard")
+    w = sub.add_parser("watch", help="post ad review/serving changes to Discord")
+    w.add_argument("--minutes", type=float, default=None, help="minutes between checks (default from config)")
+    sub.add_parser("discord-test", help="send a test message to DISCORD_WEBHOOK_URL")
     a = p.parse_args()
 
     if a.cmd == "status":
@@ -53,6 +57,16 @@ def main():
         probe(cfg, a.names, a.dimension)
     elif a.cmd == "run":
         run_cycle(cfg, dry_run=not a.live)
+    elif a.cmd == "watch":
+        try:
+            watch(cfg, a.minutes or cfg["schedule"].get("watch_minutes", 15))
+        except KeyboardInterrupt:
+            log("watch stopped")
+    elif a.cmd == "discord-test":
+        if not discord.enabled():
+            raise SystemExit("DISCORD_WEBHOOK_URL isn't set in .env")
+        discord.post("CTRMaxxer is connected", "Ad launches, review results and cycle summaries will show up here.", "good")
+        print("sent - check the channel")
     elif a.cmd == "loop":
         hours = a.hours or cfg["schedule"]["hours_between_cycles"]
         while True:
