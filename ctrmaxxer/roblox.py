@@ -36,7 +36,8 @@ class Roblox:
     def upload_image(self, path: Path, name: str, description: str = "") -> str:
         """Upload a PNG/JPEG as an image asset and return its assetId (waits for processing)."""
         req = {
-            "assetType": "Decal",
+            # Image, not Decal: ad campaigns need an image asset id (a decal's id is a wrapper around one)
+            "assetType": "Image",
             "displayName": name[:50],
             "description": description[:1000],
             "creationContext": {"creator": self.creator},

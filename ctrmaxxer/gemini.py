@@ -104,5 +104,18 @@ class Gemini:
                                                response_mime_type="application/json"),
         ))
         plan = json.loads(resp.text)
-        plan["proposals"] = plan.get("proposals", [])[:n]
+        # The model sometimes wraps the object, or nests proposals, in extra lists: keep any proposal dicts.
+        if isinstance(plan, list):
+            plan = next((p for p in plan if isinstance(p, dict)), {})
+        proposals = []
+
+        def collect(x):
+            if isinstance(x, dict) and x.get("prompt"):
+                proposals.append(x)
+            elif isinstance(x, list):
+                for y in x:
+                    collect(y)
+
+        collect(plan.get("proposals", []))
+        plan["proposals"] = proposals[:n]
         return plan

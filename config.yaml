@@ -22,17 +22,17 @@ gemini:
 
 campaign:
   name_prefix: "CTRMaxxer"
-  payment_type: CREDIT_CARD             # CREDIT_CARD | ADS_CREDIT | INVOICE
-  duration_days: 30
+  payment_type: ADS_CREDIT              # CREDIT_CARD | ADS_CREDIT (Robux converted in Ads Manager) | INVOICE
+  duration_days: 3                      # weekend run; ad credits are taken up front and unspent ones return after the end date
   targeting: {}                         # {} = everyone. e.g. {countries: [US], devices: [PHONE]}
 
 # Hard limits. The agent never goes past these.
 guardrails:
-  daily_budget_per_campaign_usd: 5      # each creative runs as its own campaign at this budget
-  max_active_campaigns: 4
-  max_total_daily_budget_usd: 20        # active campaigns x daily budget can't exceed this
+  daily_budget_per_campaign_usd: 9      # each creative runs as its own campaign at this budget
+  max_active_campaigns: 2               # weekend run: 2 ads x $9/day x 3 days = 54 of 57 ad credits
+  max_total_daily_budget_usd: 18        # active campaigns x daily budget can't exceed this
   max_new_per_cycle: 2
-  max_total_spend_usd: 100              # lifetime cap; once hit, everything gets paused
+  max_total_spend_usd: 54               # lifetime cap; once hit, everything gets paused
   min_impressions_to_judge: 2000        # no creative gets paused before this many impressions
   prune_if_prob_best_below: 0.05        # pause when <5% chance of being the best creative
 
