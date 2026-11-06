@@ -1,0 +1,49 @@
+game:
+  universe_id: "10771148474"          # your experience's Universe ID (Creator Hub -> experience -> copy Universe ID)
+  name: "Shave the Shawarma!"
+  description: >
+    Run your own shawarma stand and shave sizzling meat off the spit with
+    satisfying drag strokes: nail the crispy layers for perfect ribbons, build
+    each order by hand and serve a queue of customers who look like your Roblox
+    friends. Buy rarer meats at the Supplier Truck (from Chicken to Wagyu, King
+    Crab and the legendary Griffin), each shaving differently and unlocking a
+    cute pet. Grow your kiosk into a Grand Restaurant with more spits, staff and
+    tables. Warm, cozy cartoon style in a golden-hour village.
+  audience: >
+    13+, mobile-heavy. Note: the reference screenshots show empty stands with "FOR RENT"
+    placeholder signs and no meat being shaved; never put "FOR RENT" in an ad, and show
+    the spit loaded with sizzling meat, a character shaving it and happy customers instead.
+
+gemini:
+  image_model: gemini-3.1-flash-image   # Nano Banana. Use gemini-3-pro-image for Nano Banana Pro
+  text_model: gemini-3.8-flash          # the "brain" that analyzes results and writes prompts
+  aspect_ratio: "16:9"                  # match the ad slot you're buying
+  output_size: [1920, 1080]             # Roblox ad formats: 1920x1080 or 1024x576 (from `check`)
+
+campaign:
+  name_prefix: "CTRMaxxer"
+  payment_type: CREDIT_CARD             # CREDIT_CARD | ADS_CREDIT | INVOICE
+  duration_days: 30
+  targeting: {}                         # {} = everyone. e.g. {countries: [US], devices: [PHONE]}
+
+# Hard limits. The agent never goes past these.
+guardrails:
+  daily_budget_per_campaign_usd: 5      # each creative runs as its own campaign at this budget
+  max_active_campaigns: 4
+  max_total_daily_budget_usd: 20        # active campaigns x daily budget can't exceed this
+  max_new_per_cycle: 2
+  max_total_spend_usd: 100              # lifetime cap; once hit, everything gets paused
+  min_impressions_to_judge: 2000        # no creative gets paused before this many impressions
+  prune_if_prob_best_below: 0.05        # pause when <5% chance of being the best creative
+
+schedule:
+  hours_between_cycles: 12
+
+metrics:
+  source: csv                           # csv (export from Ads Manager) | analytics (Open Cloud API)
+  csv_path: metrics.csv                 # columns: campaign_id, impressions, clicks, spend
+  # For source: analytics. Roblox doesn't publish these names yet; find them with `python -m ctrmaxxer probe`.
+  impressions_metric: AdImpressions
+  clicks_metric: AdClicks
+  spend_metric: AdSpend
+  campaign_dimension: AdCampaignId

@@ -1,0 +1,5 @@
+google-genai>=1.30
+pillow>=10
+python-dotenv>=1.0
+pyyaml>=6
+requests>=2.31

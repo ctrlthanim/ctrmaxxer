@@ -1,0 +1,7 @@
+.env
+ctrmaxxer.db
+creatives/
+metrics.csv
+STOP
+__pycache__/
+.venv/
